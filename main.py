@@ -9,6 +9,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.webdriver import WebDriver
 from pydantic import BaseModel
+import streamlit as st
 
 
 class Query(BaseModel):
@@ -18,7 +19,7 @@ class Query(BaseModel):
 
 
 llm = Ollama(model="llama3.2")
-client = TavilyClient(api_key="enter key")
+client = TavilyClient(api_key="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")
 
 
 class WebDriverPool:
@@ -108,22 +109,13 @@ async def selenium_and_bs4_scraping(url: str):
         release_driver(driver)
 
 
-async def main():
+async def main(query):
     await init_driver_pool()
-    query = input("What is your query?")
     result = await selenium_and_bs4_scraping(query)
-    # print(result)
-    query0 = f"""
-        clean this content up and only include relevant thing from the news.
-        {result}
-    """
-
-    result1 = await llm.acomplete(query0)
-
     query1 = f"""
         Provide me the most relevant query from the content provided which can be put in a search engine to gather similar content from
         web.
-        Here is the content: {result1}
+        Here is the content: {result}
     """
 
     sllm = llm.as_structured_llm(output_cls=Query)
@@ -131,7 +123,6 @@ async def main():
 
     output = await sllm.achat([input_msg])
     output_obj = output.raw.query_to_search
-    print(output_obj)
     response = client.search(output_obj)
 
     similar_content = []
@@ -139,20 +130,28 @@ async def main():
     for result in response["results"]:
         similar_content.append(result["content"])
 
-    print(response["results"][0]["content"])
-
     prompt = f"""
         Here is the original article: {result}
         Here are similar content fetched from internet:
         {json.dumps(similar_content)}
 
         Tell me whether the original article is factually correct or is it a
-            wrong news, give me a similarity score as well.
+            wrong news
     """
     input_msg = ChatMessage.from_str(prompt)
     response = await llm.achat([input_msg])
-    print(response)
+    return response
 
 
-while True:
-    asyncio.run(main())
+st.title("News Research Tool")
+user_query = st.text_input("What is your query?")
+
+if st.button("Submit"):
+    if user_query:
+        asyncio.run(init_driver_pool())
+        result = asyncio.run(main(user_query))
+        st.write("Output:")
+        st.write(result)
+        asyncio.run(close_driver_pool())
+    else:
+        st.warning("Please enter a query.")
